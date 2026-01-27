@@ -1,0 +1,215 @@
+# BIM IFC 도면 뷰어 MVP 프로젝트 규칙
+
+## 프로젝트 개요
+- **프로젝트명**: IFC Viewer MVP
+- **목적**: BIM IFC 도면 파일을 웹에서 3D로 시각화하는 뷰어
+- **타겟 사용자**: 건축/건설 관련 엔지니어, BIM 담당자
+
+## 기술 스택
+
+### 프론트엔드 프레임워크
+- Next.js 16.x (App Router 사용)
+- React 19.x
+- TypeScript 5.x
+
+### 3D 렌더링
+- three@0.176.0 (Three.js)
+- @react-three/fiber (React Three.js 래퍼)
+- @react-three/drei (Three.js 유틸리티 컴포넌트)
+
+### BIM/IFC 라이브러리
+- **web-ifc@0.0.74** (IFC 파일 파싱, WebAssembly 기반) ✅ 현재 사용 중
+- @thatopen/components@3.3.0 (⚠️ 호환성 문제 있음 - 아래 참고)
+- @thatopen/fragments@3.3.1 (⚠️ 호환성 문제 있음 - 아래 참고)
+
+### UI/스타일링
+- Tailwind CSS
+- shadcn/ui 컴포넌트
+- lucide-react 아이콘
+
+## ⚠️ That Open Components 호환성 문제 (중요!)
+
+### 문제 상황
+`@thatopen/components`와 `@thatopen/fragments`를 Next.js 16 + React 19 환경에서 사용 시 다음 에러 발생:
+```
+TypeError: callbacks.shift(...) is not a function
+at callRuntimeCallbacks (web-ifc-api.js)
+```
+
+### 원인
+- @thatopen/components가 내부적으로 자체 web-ifc 버전을 번들링
+- Next.js webpack 설정과 WASM 로딩 방식 충돌
+- React 19의 새로운 런타임과 호환성 문제
+
+### 현재 해결책
+**web-ifc를 직접 사용** (`hooks/useIFCLoader.ts`)
+- `web-ifc@0.0.74` 직접 import
+- WASM 파일은 `public/wasm/`에 배치
+- Next.js rewrites로 경로 매핑:
+  ```typescript
+  // next.config.ts
+  async rewrites() {
+    return [
+      {
+        source: "/_next/static/chunks/wasm/:path*",
+        destination: "/wasm/:path*",
+      },
+    ];
+  }
+  ```
+
+### That Open Components 사용하려면
+- Next.js 버전 다운그레이드 (14.x) 시도
+- 또는 순수 HTML/JS 환경에서 사용
+- 공식 문서: https://docs.thatopen.com/
+
+## 프로젝트 구조
+```
+ifc-mvp/
+├── app/                    # Next.js App Router
+│   ├── layout.tsx
+│   ├── page.tsx
+│   └── globals.css
+├── components/
+│   ├── viewer/             # 3D 뷰어 관련 컴포넌트
+│   │   ├── index.tsx       # 메인 뷰어 컨테이너
+│   │   ├── scene/          # 3D 씬 컴포넌트
+│   │   ├── sidebar/        # 사이드바 (자재, 모델트리)
+│   │   ├── toolbar/        # 툴바
+│   │   ├── upload/         # 파일 업로드
+│   │   └── hooks/          # 뷰어 전용 훅
+│   └── ui/                 # shadcn/ui 컴포넌트
+├── hooks/
+│   ├── useIFCLoader.ts     # ✅ 메인 IFC 로더 (web-ifc 직접 사용)
+│   └── useFragmentsLoader.ts # ⚠️ That Open 로더 (호환성 문제)
+├── lib/
+│   ├── ifc/                # IFC 관련 유틸리티
+│   └── three/              # Three.js 최적화 유틸리티
+├── types/
+│   └── ifc.ts              # IFC 관련 타입 정의
+├── public/
+│   └── wasm/               # web-ifc WASM 파일 (필수!)
+│       ├── web-ifc.wasm
+│       ├── web-ifc-mt.wasm
+│       └── web-ifc-node.wasm
+└── ...config files
+```
+
+## 코딩 규칙
+
+### Next.js & React
+- App Router 사용 (pages 디렉토리 사용 금지)
+- Three.js/WebGL 관련 컴포넌트는 반드시 `'use client'` 지시어 사용
+- IFC/Three.js 컴포넌트는 dynamic import로 SSR 비활성화:
+  ```typescript
+  import dynamic from 'next/dynamic';
+  const IFCViewer = dynamic(() => import('@/components/viewer'), {
+    ssr: false,
+  });
+  ```
+
+### Three.js
+- @react-three/fiber의 Canvas 컴포넌트 사용
+- OrbitControls로 카메라 컨트롤 구현
+- mesh의 userData에 IFC 요소 정보 저장 (expressID, typeCode)
+- Raycaster를 이용한 마우스 피킹으로 요소 선택
+- `frameloop="demand"` + `invalidate()` 로 렌더링 최적화
+
+### IFC/BIM (web-ifc 직접 사용)
+- web-ifc WASM 파일은 `public/wasm/`에 배치 (필수!)
+- WASM 로딩: `ifcApi.SetWasmPath("/wasm/")`
+- node_modules에서 WASM 복사: `cp node_modules/web-ifc/*.wasm public/wasm/`
+- IFC 파일 파싱은 청크 단위로 진행 (UI 블로킹 방지)
+
+### 스타일링
+- Tailwind CSS 클래스 사용
+- 커스텀 CSS는 최소화
+- 다크/라이트 모드 지원
+
+### 타입스크립트
+- any 타입 사용 최소화
+- IFC 관련 타입은 types/ifc.ts에 정의
+- 컴포넌트 props는 interface로 정의
+
+## MVP 핵심 기능
+
+### Phase 1: 기본 뷰어 ✅ 완료
+1. IFC 파일 업로드 (드래그 앤 드롭 또는 파일 선택)
+2. 3D 모델 렌더링 (IFC 파일을 Three.js로 시각화)
+3. 카메라 컨트롤 (회전, 줌, 팬 - OrbitControls)
+4. 기본 조명 (Ambient + Directional Light)
+
+### Phase 2: 인터랙션 ✅ 완료
+5. 요소 선택 (클릭으로 BIM 요소 선택)
+6. 하이라이트 (선택된 요소 강조 표시)
+7. 동일 타입 다중 선택
+8. 모델 트리 (계층적 모델 구조 표시)
+
+### Phase 3: 편의 기능 ✅ 완료
+9. X-Ray 모드 (선택 요소 투시)
+10. 층별 필터 (IfcBuildingStorey)
+11. 자재 테이블 (수량 검토)
+12. 다크/라이트 모드
+13. 윤곽선 표시 (on/off)
+
+## Next.js 설정 (next.config.ts)
+```typescript
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  reactStrictMode: false, // web-ifc 호환성
+  transpilePackages: ["three", "web-ifc"],
+  
+  // WASM 파일 리다이렉트 (중요!)
+  async rewrites() {
+    return [
+      {
+        source: "/_next/static/chunks/wasm/:path*",
+        destination: "/wasm/:path*",
+      },
+    ];
+  },
+  
+  webpack: (config) => {
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+      syncWebAssembly: true,
+    };
+    return config;
+  },
+};
+
+export default nextConfig;
+```
+
+## 성능 최적화 가이드
+
+### 현재 적용된 최적화
+- `frameloop="demand"` - 필요시에만 렌더링
+- `frustumCulled` - 화면 밖 객체 컬링
+- 청크 단위 지오메트리 생성 (UI 블로킹 방지)
+- BVH 레이캐스팅 (three-mesh-bvh) - 설치됨, 호환성 확인 필요
+
+### 대용량 파일 최적화 옵션
+1. **윤곽선 자동 OFF** - 10,000+ 메시 시 적용 중
+2. **Web Worker 파싱** - 구현 가능 (hooks/useIFCWorkerLoader.ts)
+3. **LOD** - lib/three/lodManager.ts 구현됨
+4. **지오메트리 병합** - lib/three/geometryMerger.ts (선택 기능 제한)
+
+### ⚠️ 주의: That Open Fragments 사용 시
+- @thatopen/components의 FragmentsManager 사용하려면 `fragments.init()` 호출 필수
+- 현재 Next.js 16 + React 19 환경에서 WASM 로딩 충돌 발생
+- 대안: web-ifc 직접 사용 권장
+
+## 참고 자료
+- That Open Company (IFC.js) 공식 문서: https://docs.thatopen.com/
+- web-ifc GitHub: https://github.com/ThatOpen/engine_web-ifc
+- @react-three/fiber 문서: https://docs.pmnd.rs/react-three-fiber
+- IFC 스펙 문서: https://technical.buildingsmart.org/standards/ifc/
+
+## 응답 언어
+- 사용자에게 응답할 때는 항상 한국어로 응답
+
+## 백업 정보
+- 프로젝트 백업: `/Users/pata/ifc-mvp-backup` (That Open 전환 전 상태)
