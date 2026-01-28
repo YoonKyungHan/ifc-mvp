@@ -46,6 +46,7 @@ export interface MaterialItem {
   spec: string;         // 규격 문자열 (예: "300×200×2700")
   count: number;
   unit: string;
+  totalArea?: number;   // 총 면적 (m²)
   expressIDs: number[];
   dimensions?: ElementDimensions;
 }
@@ -78,7 +79,24 @@ export const IFC_SPATIAL_TYPES = {
   // 관계
   IFCRELAGGREGATES: 160246688,
   IFCRELCONTAINEDINSPATIALSTRUCTURE: 3242617779,
+  // 속성 관련
+  IFCRELDEFINESBYPROPERTIES: 4186316022,
+  IFCPROPERTYSET: 1451395588,
+  IFCPROPERTYSINGLEVALUE: 3650150729,
+  IFCELEMENTQUANTITY: 1883228015,
 } as const;
+
+// IFC 속성 정보 (Property Set에서 추출)
+export interface IFCPropertyInfo {
+  isExternal?: boolean;      // 외부/내부 구분
+  loadBearing?: boolean;     // 내력벽 여부
+  fireRating?: string;       // 내화등급
+  reference?: string;        // 참조 정보
+  description?: string;      // 설명
+  objectType?: string;       // 객체 타입
+  finishType?: string;       // 마감 타입
+  acousticRating?: string;   // 음향 등급
+}
 
 export interface IFCModel {
   id: string;

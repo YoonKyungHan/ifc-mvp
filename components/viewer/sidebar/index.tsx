@@ -11,6 +11,7 @@ type TabType = "quantity" | "tree";
 export interface SidebarProps extends Omit<MaterialTableProps, 'isDarkMode'> {
   selectedExpressIDs: number[];
   onSelectElements: (expressIDs: number[]) => void;
+  onTableHighlight?: (expressIDs: number[]) => void;  // 테이블에서 강조된 요소들 (3D 초록색)
   isDarkMode?: boolean;
   spatialTree?: IFCSpatialNode | null;
 }
@@ -21,6 +22,7 @@ export const Sidebar = memo(function Sidebar({
   selectedExpressIDs,
   onSelectMaterial,
   onSelectElements,
+  onTableHighlight,
   isDarkMode = true,
   hiddenMaterialIds,
   onToggleVisibility,
@@ -66,7 +68,9 @@ export const Sidebar = memo(function Sidebar({
           <MaterialTable
             materials={materials}
             selectedMaterialId={selectedMaterialId}
+            selectedExpressIDs={selectedExpressIDs}
             onSelectMaterial={onSelectMaterial}
+            onTableHighlight={onTableHighlight}
             isDarkMode={isDarkMode}
             hiddenMaterialIds={hiddenMaterialIds}
             onToggleVisibility={onToggleVisibility}

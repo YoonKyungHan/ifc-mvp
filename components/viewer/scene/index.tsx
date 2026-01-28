@@ -11,6 +11,7 @@ export interface IFCSceneProps {
   model: THREE.Group | null;
   onElementSelect: (expressID: number | null, typeCode?: number) => void;
   selectedExpressIDs: number[];
+  tableHighlightedIDs?: number[];  // 테이블에서 강조된 요소 (초록색)
   isDarkMode: boolean;
   hiddenExpressIDs: Set<number> | null;  // 숨길 expressID들
   xrayMode: boolean;
@@ -30,10 +31,27 @@ const edgeMaterialLight = new THREE.LineBasicMaterial({
   color: 0x64748b, // 라이트모드: 블루-그레이
 });
 
+// 테이블 강조용 초록색 재질
+const greenHighlightMaterial = new THREE.MeshBasicMaterial({
+  color: 0x22c55e, // 초록색
+  transparent: true,
+  opacity: 0.9,
+  depthTest: true,
+  side: THREE.DoubleSide,
+});
+const greenXrayMaterial = new THREE.MeshBasicMaterial({
+  color: 0x22c55e,
+  transparent: true,
+  opacity: 0.85,
+  depthTest: false,
+  side: THREE.DoubleSide,
+});
+
 export function IFCScene({ 
   model, 
   onElementSelect, 
-  selectedExpressIDs, 
+  selectedExpressIDs,
+  tableHighlightedIDs = [],
   isDarkMode, 
   hiddenExpressIDs, 
   xrayMode, 
@@ -204,13 +222,15 @@ export function IFCScene({
     };
   }, [model, showEdges, isDarkMode]);
 
-  // 선택 하이라이트
+  // 선택 하이라이트 (파란색: 3D 선택, 초록색: 테이블 강조)
   useEffect(() => {
     const meshMap = meshMapRef.current;
     const originalMaterials = originalMaterialsRef.current;
     const prevSelected = prevSelectedRef.current;
     const currentSelected = new Set(selectedExpressIDs);
+    const tableHighlightedSet = new Set(tableHighlightedIDs);
 
+    // 이전에 선택되었던 요소들 원래 재질로 복원
     prevSelected.forEach(id => {
       if (!currentSelected.has(id)) {
         const meshes = meshMap.get(id);
@@ -226,19 +246,26 @@ export function IFCScene({
       }
     });
 
+    // 현재 선택된 요소들 하이라이트
     currentSelected.forEach(id => {
       const meshes = meshMap.get(id);
       if (meshes) {
         meshes.forEach(mesh => {
-          mesh.material = xrayMode ? highlightMaterial : normalHighlightMaterial;
-          mesh.renderOrder = xrayMode ? 999 : 0;
+          // 테이블에서 강조된 요소는 초록색, 나머지는 파란색
+          if (tableHighlightedSet.has(id)) {
+            mesh.material = xrayMode ? greenXrayMaterial : greenHighlightMaterial;
+            mesh.renderOrder = xrayMode ? 1000 : 1; // 초록색이 더 위에
+          } else {
+            mesh.material = xrayMode ? highlightMaterial : normalHighlightMaterial;
+            mesh.renderOrder = xrayMode ? 999 : 0;
+          }
         });
       }
     });
 
     prevSelectedRef.current = currentSelected;
     invalidate();
-  }, [selectedExpressIDs, xrayMode]);
+  }, [selectedExpressIDs, tableHighlightedIDs, xrayMode]);
 
   const handlePointerDown = useCallback((event: any) => {
     pointerDownRef.current = {
@@ -260,32 +287,27 @@ export function IFCScene({
     if (timeDiff < CLICK_TIME_THRESHOLD && distance < CLICK_DISTANCE_THRESHOLD) {
       const obj = event.object;
       
-      // 일반 메시: expressID 직접 사용
-      if (obj instanceof THREE.Mesh && obj.userData.expressID) {
-        onElementSelect(obj.userData.expressID, obj.userData.typeCode);
+      // 디버그: 클릭된 객체 정보
+      if (obj instanceof THREE.Mesh) {
+        console.log("🖱️ 클릭된 객체:", {
+          expressID: obj.userData.expressID,
+          typeCode: obj.userData.typeCode,
+          name: obj.name,
+          hasGeometry: !!obj.geometry,
+        });
       }
-      // 병합된 메시: face index로 expressID 찾기
-      else if (obj instanceof THREE.Mesh && obj.userData.isMergedMesh && event.faceIndex !== undefined) {
-        const geometry = obj.geometry;
-        const expressIdAttr = geometry.getAttribute('expressID');
+      
+      // 일반 메시: expressID 직접 사용
+      if (obj instanceof THREE.Mesh && obj.userData.expressID !== undefined) {
+        const expressID = obj.userData.expressID;
+        const typeCode = obj.userData.typeCode;
         
-        if (expressIdAttr) {
-          // face의 첫 번째 vertex에서 expressID 읽기
-          const index = geometry.index;
-          let vertexIndex: number;
-          
-          if (index) {
-            vertexIndex = index.getX(event.faceIndex * 3);
-          } else {
-            vertexIndex = event.faceIndex * 3;
-          }
-          
-          const expressID = expressIdAttr.getX(vertexIndex);
-          const typeCode = obj.userData.typeCodes?.[0]; // 대표 typeCode 사용
-          
-          if (expressID && expressID > 0) {
-            onElementSelect(expressID, typeCode);
-          }
+        // typeCode가 0이거나 undefined면 단일 선택으로 처리
+        if (typeCode === undefined || typeCode === 0) {
+          console.log("⚠️ typeCode 누락 - 단일 선택:", expressID);
+          onElementSelect(expressID, -1); // -1: 단일 선택 모드
+        } else {
+          onElementSelect(expressID, typeCode);
         }
       }
     }

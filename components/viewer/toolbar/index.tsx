@@ -50,9 +50,9 @@ export function ViewerToolbar({
     : "bg-white/90 backdrop-blur-sm border-slate-300";
 
   return (
-    <div className="absolute top-4 left-4 right-4 z-10 flex items-center justify-between">
+    <>
       {/* 왼쪽 - 패널 토글 + 로고 */}
-      <div className="flex items-center gap-2">
+      <div className="absolute top-4 left-4 z-30 flex items-center gap-2">
         <Button 
           variant="ghost" 
           size="icon"
@@ -81,8 +81,8 @@ export function ViewerToolbar({
         </div>
       </div>
 
-      {/* 오른쪽 - 뷰 도구들 */}
-      <div className="flex items-center gap-2">
+      {/* 오른쪽 - 뷰 도구들 (고정 위치) */}
+      <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
         {hasModel && (
           <>
             {/* 윤곽선 토글 */}
@@ -121,6 +121,6 @@ export function ViewerToolbar({
           {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </Button>
       </div>
-    </div>
+    </>
   );
 }

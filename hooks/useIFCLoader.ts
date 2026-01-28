@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import * as THREE from "three";
-import { MaterialItem, StoreyInfo, IFCSpatialNode, ElementDimensions, IFC_TYPE_NAMES, IFC_SPATIAL_TYPES } from "@/types/ifc";
+import { MaterialItem, StoreyInfo, IFCSpatialNode, ElementDimensions, IFC_TYPE_NAMES, IFC_SPATIAL_TYPES, IFCPropertyInfo } from "@/types/ifc";
 
 const TYPE_CATEGORIES: Record<number, string> = {
   45: "구조", 46: "구조", 1529196076: "구조", 843113511: "구조",
@@ -58,6 +58,7 @@ interface UseIFCLoaderReturn {
 
 const typeToExpressIDs = new Map<number, number[]>();
 const elementDimensions = new Map<number, ElementDimensions>(); // expressID -> 규격
+const elementProperties = new Map<number, IFCPropertyInfo>(); // expressID -> IFC 속성 정보
 let cachedMaterials: MaterialItem[] = [];
 let cachedStoreys: StoreyInfo[] = [];
 let cachedSpatialTree: IFCSpatialNode | null = null;
@@ -79,6 +80,53 @@ const getTypeName = (typeCode: number): string => {
     case IFC_SPATIAL_TYPES.IFCSPACE: return "IfcSpace";
     default: return IFC_TYPE_NAMES[typeCode] || `Type_${typeCode}`;
   }
+};
+
+// IFC 속성 정보를 규격 문자열로 변환
+const buildSpecFromProperties = (props: IFCPropertyInfo, typeCode: number): string => {
+  const parts: string[] = [];
+  
+  // 외벽/내벽 구분
+  if (props.isExternal !== undefined) {
+    // 타입에 따라 적절한 접두사 사용
+    const typeName = IFC_TYPE_NAMES[typeCode] || "";
+    if (typeName === "벽" || typeName.includes("벽")) {
+      parts.push(props.isExternal ? "외벽" : "내벽");
+    } else if (typeName === "슬라브" || typeName === "바닥") {
+      parts.push(props.isExternal ? "외부바닥" : "내부바닥");
+    } else if (typeName === "지붕") {
+      parts.push(props.isExternal ? "외부지붕" : "내부천장");
+    } else {
+      parts.push(props.isExternal ? "외부" : "내부");
+    }
+  }
+  
+  // 참조 정보 (마감재 등)
+  if (props.reference) {
+    parts.push(props.reference);
+  }
+  
+  // 마감 타입
+  if (props.finishType) {
+    parts.push(props.finishType);
+  }
+  
+  // 객체 타입 (참조, 마감이 없을 때)
+  if (parts.length === 0 && props.objectType) {
+    parts.push(props.objectType);
+  }
+  
+  // 내화등급
+  if (props.fireRating) {
+    parts.push(`내화${props.fireRating}`);
+  }
+  
+  // 내력벽
+  if (props.loadBearing) {
+    parts.push("내력");
+  }
+  
+  return parts.join(",");
 };
 
 export function useIFCLoader(): UseIFCLoaderReturn {
@@ -316,6 +364,10 @@ export function useIFCLoader(): UseIFCLoaderReturn {
             box.applyMatrix4(matrix);
             const size = box.getSize(new THREE.Vector3());
             
+            // 면적 계산: 가장 큰 두 면의 곱 (m² 단위)
+            const dims = [size.x, size.y, size.z].sort((a, b) => b - a);
+            const area = dims[0] * dims[1]; // 가장 큰 두 치수의 곱
+            
             // 기존 규격이 있으면 병합 (같은 expressID의 여러 지오메트리)
             const existing = elementDimensions.get(expressID);
             if (existing) {
@@ -323,12 +375,14 @@ export function useIFCLoader(): UseIFCLoaderReturn {
                 width: Math.max(existing.width, Math.round(size.x * 1000)),
                 height: Math.max(existing.height, Math.round(size.y * 1000)),
                 depth: Math.max(existing.depth, Math.round(size.z * 1000)),
+                area: (existing.area || 0) + area, // 면적 누적
               });
             } else {
               elementDimensions.set(expressID, {
                 width: Math.round(size.x * 1000),
                 height: Math.round(size.y * 1000),
                 depth: Math.round(size.z * 1000),
+                area: area,
               });
             }
           }
@@ -339,6 +393,94 @@ export function useIFCLoader(): UseIFCLoaderReturn {
       });
 
       console.log(`✅ 메시 생성 완료: ${meshCount}개, 규격정보: ${elementDimensions.size}개`);
+
+      setProgress(70);
+      setLoadingMessage("IFC 속성 분석 중...");
+
+      // Property Sets 파싱 (IsExternal, Reference 등)
+      try {
+        const relDefinesIds = ifcApi.GetLineIDsWithType(modelID, IFC_SPATIAL_TYPES.IFCRELDEFINESBYPROPERTIES);
+        console.log(`🔍 IFCRELDEFINESBYPROPERTIES: ${relDefinesIds.size()}개 관계 발견`);
+        
+        for (let i = 0; i < relDefinesIds.size(); i++) {
+          try {
+            const relDefines = ifcApi.GetLine(modelID, relDefinesIds.get(i), true) as any;
+            if (!relDefines) continue;
+            
+            // 관련된 객체들 (RelatedObjects)
+            const relatedObjects = relDefines.RelatedObjects || [];
+            const propertyDef = relDefines.RelatingPropertyDefinition;
+            
+            if (!propertyDef || relatedObjects.length === 0) continue;
+            
+            // PropertySet 처리
+            if (propertyDef.type === IFC_SPATIAL_TYPES.IFCPROPERTYSET) {
+              const hasProperties = propertyDef.HasProperties || [];
+              
+              // 속성 추출
+              const propInfo: IFCPropertyInfo = {};
+              
+              for (const prop of hasProperties) {
+                if (!prop || !prop.Name?.value) continue;
+                
+                const propName = prop.Name.value.toLowerCase();
+                const propValue = prop.NominalValue?.value;
+                
+                if (propName === "isexternal" || propName === "is external") {
+                  propInfo.isExternal = propValue === true || propValue === ".T." || propValue === "TRUE";
+                } else if (propName === "loadbearing" || propName === "load bearing") {
+                  propInfo.loadBearing = propValue === true || propValue === ".T." || propValue === "TRUE";
+                } else if (propName === "firerating" || propName === "fire rating") {
+                  propInfo.fireRating = String(propValue || "");
+                } else if (propName === "reference") {
+                  propInfo.reference = String(propValue || "");
+                } else if (propName === "finish" || propName === "finishtype") {
+                  propInfo.finishType = String(propValue || "");
+                } else if (propName === "acousticrating") {
+                  propInfo.acousticRating = String(propValue || "");
+                }
+              }
+              
+              // 각 관련 객체에 속성 저장
+              for (const relObj of relatedObjects) {
+                const expressID = typeof relObj === 'number' ? relObj : relObj?.expressID;
+                if (!expressID) continue;
+                
+                // 기존 속성과 병합
+                const existing = elementProperties.get(expressID) || {};
+                elementProperties.set(expressID, { ...existing, ...propInfo });
+              }
+            }
+          } catch (e) {
+            // 개별 관계 파싱 실패 무시
+          }
+        }
+        
+        // 각 요소의 기본 속성도 추출 (ObjectType, Description)
+        for (const { expressID, typeCode } of tempTypeData) {
+          try {
+            const props = ifcApi.GetLine(modelID, expressID, false) as any;
+            if (!props) continue;
+            
+            const existing = elementProperties.get(expressID) || {};
+            
+            if (props.ObjectType?.value && !existing.objectType) {
+              existing.objectType = props.ObjectType.value;
+            }
+            if (props.Description?.value && !existing.description) {
+              existing.description = props.Description.value;
+            }
+            
+            if (Object.keys(existing).length > 0) {
+              elementProperties.set(expressID, existing);
+            }
+          } catch {}
+        }
+        
+        console.log(`📋 속성 정보 추출 완료: ${elementProperties.size}개 요소`);
+      } catch (e) {
+        console.warn("Property Set 파싱 실패:", e);
+      }
 
       setProgress(75);
       setLoadingMessage("IFC 공간 구조 분석 중...");
@@ -381,11 +523,22 @@ export function useIFCLoader(): UseIFCLoaderReturn {
         typeToExpressIDs.set(typeCode, existing);
       }
 
-      // 규격을 문자열로 변환 (정규화)
-      const getDimensionSpec = (dim: ElementDimensions): string => {
-        // 크기 순서로 정렬 (큰 것부터)
-        const sizes = [dim.width, dim.height, dim.depth].sort((a, b) => b - a);
-        return `${sizes[0]}×${sizes[1]}×${sizes[2]}`;
+      // IFC 속성에서 규격 문자열 생성
+      const getSpecFromElement = (expressID: number, typeCode: number): string => {
+        const props = elementProperties.get(expressID);
+        if (props) {
+          const specFromProps = buildSpecFromProperties(props, typeCode);
+          if (specFromProps) return specFromProps;
+        }
+        
+        // 속성이 없으면 치수 기반 규격 (기존 방식)
+        const dim = elementDimensions.get(expressID);
+        if (dim) {
+          const sizes = [dim.width, dim.height, dim.depth].sort((a, b) => b - a);
+          return `${sizes[0]}×${sizes[1]}×${sizes[2]}`;
+        }
+        
+        return "일반";
       };
 
       // 타입 + 규격별 그룹화
@@ -393,6 +546,7 @@ export function useIFCLoader(): UseIFCLoaderReturn {
         typeCode: number; 
         spec: string; 
         dimensions: ElementDimensions;
+        totalArea: number;
         expressIDs: number[] 
       }>();
 
@@ -400,17 +554,19 @@ export function useIFCLoader(): UseIFCLoaderReturn {
         const dim = elementDimensions.get(expressID);
         if (!dim) continue;
         
-        const spec = getDimensionSpec(dim);
+        const spec = getSpecFromElement(expressID, typeCode);
         const key = `${typeCode}_${spec}`;
         
         const existing = materialMap.get(key);
         if (existing) {
           existing.expressIDs.push(expressID);
+          existing.totalArea += dim.area || 0;
         } else {
           materialMap.set(key, {
             typeCode,
             spec,
             dimensions: dim,
+            totalArea: dim.area || 0,
             expressIDs: [expressID],
           });
         }
@@ -426,6 +582,7 @@ export function useIFCLoader(): UseIFCLoaderReturn {
           spec: data.spec,
           count: data.expressIDs.length,
           unit: "개",
+          totalArea: data.totalArea,
           expressIDs: data.expressIDs,
           dimensions: data.dimensions,
         });
@@ -482,6 +639,7 @@ export function useIFCLoader(): UseIFCLoaderReturn {
     modelIDRef.current = null;
     typeToExpressIDs.clear();
     elementDimensions.clear();
+    elementProperties.clear();
     cachedMaterials = [];
     cachedStoreys = [];
     cachedSpatialTree = null;

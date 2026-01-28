@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
 
@@ -18,11 +18,39 @@ import { useVisibility } from "./hooks/useVisibility";
 // 타입
 import { MaterialItem, StoreyInfo, IFCSpatialNode } from "@/types/ifc";
 
-// 성능 통계 컴포넌트
-import { Stats } from "@react-three/drei";
+// 성능 통계 컴포넌트 (stats.js 직접 사용)
+import StatsImpl from "stats.js";
 
-function PerformanceStats() {
-  return <Stats showPanel={0} className="stats" />;
+function StatsPanel({ parentRef }: { parentRef: React.RefObject<HTMLDivElement | null> }) {
+  useEffect(() => {
+    if (!parentRef.current) return;
+    
+    const stats = new StatsImpl();
+    stats.showPanel(0); // 0: FPS
+    stats.dom.style.position = 'absolute';
+    stats.dom.style.left = '0px';
+    stats.dom.style.bottom = '0px';
+    stats.dom.style.top = 'auto';
+    stats.dom.style.zIndex = '10';
+    
+    parentRef.current.appendChild(stats.dom);
+    
+    let animationId: number;
+    const animate = () => {
+      stats.update();
+      animationId = requestAnimationFrame(animate);
+    };
+    animate();
+    
+    return () => {
+      cancelAnimationFrame(animationId);
+      if (stats.dom.parentNode) {
+        stats.dom.parentNode.removeChild(stats.dom);
+      }
+    };
+  }, [parentRef]);
+  
+  return null;
 }
 
 export function IFCViewer() {
@@ -38,6 +66,7 @@ export function IFCViewer() {
   const [xrayMode, setXrayMode] = useState(true);
   const [showEdges, setShowEdges] = useState(true);
   const [showStats, setShowStats] = useState(true);
+  const [tableHighlightedIDs, setTableHighlightedIDs] = useState<number[]>([]); // 테이블에서 강조된 요소 (3D 초록색)
 
   // IFC 로더 (web-ifc 직접 사용)
   const { 
@@ -102,6 +131,19 @@ export function IFCViewer() {
   }, [cleanup]);
 
   const bgClass = isDarkMode ? "bg-slate-900" : "bg-slate-100";
+  const viewerRef = useRef<HTMLDivElement>(null);
+  
+  // 사이드바 토글 시 캔버스 리사이즈 트리거
+  const [canvasKey, setCanvasKey] = useState(0);
+  useEffect(() => {
+    // 사이드바 상태 변경 후 약간의 딜레이를 두고 리사이즈 트리거
+    const timer = setTimeout(() => {
+      setCanvasKey(prev => prev + 1);
+      // 윈도우 리사이즈 이벤트 발생시켜 Three.js가 감지하도록 함
+      window.dispatchEvent(new Event('resize'));
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [showSidebar]);
 
   return (
     <div className={`relative w-full h-full flex ${bgClass}`}>
@@ -114,6 +156,7 @@ export function IFCViewer() {
             selectedExpressIDs={selectedExpressIDs}
             onSelectMaterial={handleMaterialSelect}
             onSelectElements={handleSelectElements}
+            onTableHighlight={setTableHighlightedIDs}
             isDarkMode={isDarkMode}
             hiddenMaterialIds={hiddenMaterialIds}
             onToggleVisibility={handleToggleVisibility}
@@ -128,7 +171,7 @@ export function IFCViewer() {
       )}
 
       {/* 3D 뷰어 영역 */}
-      <div className="flex-1 relative">
+      <div className="flex-1 relative" ref={viewerRef}>
         <ViewerToolbar
           hasModel={!!model}
           showTable={showSidebar}
@@ -178,6 +221,7 @@ export function IFCViewer() {
 
         {/* 3D Canvas */}
         <Canvas
+          key={canvasKey}
           className="w-full h-full"
           gl={{ 
             antialias: true,
@@ -188,35 +232,32 @@ export function IFCViewer() {
           }}
           frameloop="demand"
           dpr={[1, 1.5]}
+          resize={{ scroll: false, debounce: { scroll: 0, resize: 0 } }}
         >
           <IFCScene
             model={model}
             onElementSelect={handleElementSelect}
             selectedExpressIDs={selectedExpressIDs}
+            tableHighlightedIDs={tableHighlightedIDs}
             isDarkMode={isDarkMode}
             hiddenExpressIDs={hiddenExpressIDs}
             xrayMode={xrayMode}
             visibleExpressIDs={visibleExpressIDs}
             showEdges={showEdges}
           />
-          {showStats && <PerformanceStats />}
         </Canvas>
 
-        {/* 파일 변경 버튼 */}
-        {model && !isLoading && (
-          <div className="absolute bottom-4 left-4 z-10">
-            <FileUpload onFileLoad={handleFileLoad} compact isDarkMode={isDarkMode} />
-          </div>
-        )}
+        {/* FPS 통계 */}
+        {showStats && <StatsPanel parentRef={viewerRef} />}
 
-        {/* 선택 정보 */}
-        {selectedExpressIDs.length > 0 && (
-          <div className={`absolute bottom-4 right-4 z-10 backdrop-blur-sm px-4 py-2 rounded-lg border ${isDarkMode ? "bg-slate-800/90 border-slate-700" : "bg-white/90 border-slate-300"}`}>
-            <p className={`text-sm ${isDarkMode ? "text-slate-300" : "text-slate-700"}`}>
-              <span className="text-blue-400 font-medium">{selectedExpressIDs.length}개</span> 요소 선택됨
-            </p>
-          </div>
-        )}
+        {/* 로고 */}
+        <div className="absolute bottom-4 right-4 z-10">
+          <img 
+            src="/logo.png" 
+            alt="Logo" 
+            className="h-8 opacity-40 hover:opacity-70 transition-opacity"
+          />
+        </div>
       </div>
     </div>
   );
