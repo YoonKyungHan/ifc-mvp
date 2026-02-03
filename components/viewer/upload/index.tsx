@@ -15,10 +15,11 @@ export function FileUpload({ onFileLoad, compact = false, isDarkMode = true }: F
   const [isDragging, setIsDragging] = useState(false);
 
   const handleFile = useCallback((file: File) => {
-    if (file.name.toLowerCase().endsWith(".ifc")) {
+    const fileName = file.name.toLowerCase();
+    if (fileName.endsWith(".ifc") || fileName.endsWith(".frag") || fileName.endsWith(".glb") || fileName.endsWith(".gltf")) {
       onFileLoad(file);
     } else {
-      alert("IFC 파일만 업로드 가능합니다.");
+      alert("IFC, FRAG 또는 GLB 파일만 업로드 가능합니다.");
     }
   }, [onFileLoad]);
 
@@ -52,7 +53,7 @@ export function FileUpload({ onFileLoad, compact = false, isDarkMode = true }: F
       >
         <FileUp className="w-4 h-4" />
         다른 파일 열기
-        <input id="file-input-compact" type="file" accept=".ifc" className="hidden" onChange={handleFileInput} />
+        <input id="file-input-compact" type="file" accept=".ifc,.frag,.glb,.gltf" className="hidden" onChange={handleFileInput} />
       </Button>
     );
   }
@@ -80,13 +81,13 @@ export function FileUpload({ onFileLoad, compact = false, isDarkMode = true }: F
           <Upload className="w-8 h-8" />
         </div>
         <div>
-          <h3 className={`font-semibold text-lg ${theme.title}`}>IFC 파일 업로드</h3>
+          <h3 className={`font-semibold text-lg ${theme.title}`}>IFC / FRAG 파일 업로드</h3>
           <p className={`text-sm mt-1 ${theme.subtitle}`}>파일을 드래그하거나 클릭하여 선택하세요</p>
         </div>
         <Button variant="outline" className={`mt-2 ${theme.button}`}>파일 선택</Button>
-        <p className={`text-xs ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>지원 형식: .ifc</p>
+        <p className={`text-xs ${isDarkMode ? "text-slate-500" : "text-slate-400"}`}>지원 형식: .ifc, .glb, .gltf</p>
       </div>
-      <input id="file-input" type="file" accept=".ifc" className="hidden" onChange={handleFileInput} />
+      <input id="file-input" type="file" accept=".ifc,.frag,.glb,.gltf" className="hidden" onChange={handleFileInput} />
     </Card>
   );
 }

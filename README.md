@@ -1,37 +1,307 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# IFC Viewer MVP
 
-## Getting Started
+BIM IFC 도면 파일을 웹에서 3D로 시각화하는 뷰어 애플리케이션입니다.
 
-First, run the development server:
+![IFC Viewer](https://img.shields.io/badge/Next.js-16.1.4-black)
+![React](https://img.shields.io/badge/React-19.2.3-blue)
+![Three.js](https://img.shields.io/badge/Three.js-0.176.0-green)
+![web-ifc](https://img.shields.io/badge/web--ifc-0.0.74-orange)
+
+## 🎯 주요 기능
+
+### 📁 IFC 파일 로딩
+- **드래그 앤 드롭** 또는 파일 선택으로 IFC 파일 업로드
+- **web-ifc** 라이브러리를 사용한 클라이언트 사이드 파싱 (WebAssembly)
+- 로딩 진행률 표시
+- 대용량 파일 지원 (청크 단위 처리)
+
+### 🎨 3D 렌더링
+- **Three.js + @react-three/fiber** 기반 3D 렌더링
+- IFC 요소별 색상 및 재질 적용
+- 윤곽선(Edge) 렌더링 On/Off
+- 다크/라이트 모드 지원
+- 안티앨리어싱 적용
+
+### 🖱️ 카메라 컨트롤
+- **OrbitControls** - 회전, 줌, 팬
+- 마우스/터치 제스처 지원
+- 모델 자동 중앙 정렬 (Fit to View)
+
+### ✅ 요소 선택
+- 클릭으로 개별 요소 선택
+- **동일 타입 다중 선택** - 같은 타입(벽, 기둥 등)의 요소 일괄 선택
+- 선택 요소 파란색 하이라이트
+- 선택 해제 기능
+- **BVH 레이캐스팅** - 대용량 모델에서도 빠른 선택
+
+### 👁️ X-Ray 모드
+- 선택된 요소를 다른 요소를 통해 볼 수 있음
+- 건물 내부 요소 확인에 유용
+- 토글 버튼으로 On/Off
+
+### 🏢 층별 필터
+- **IfcBuildingStorey** 기반 층 정보 추출
+- 드롭다운으로 층 선택
+- 선택한 층의 요소만 표시
+- 자재 테이블도 층별 필터링
+
+### 📊 자재 테이블 (수량 검토)
+- 카테고리별 자재 목록 (구조, 건축, 가구 등)
+- **품명, 규격, 면적/수량** 정보 표시
+- 규격 자동 계산 (가로 × 세로 × 높이)
+- 면적(m²) 자동 계산
+- 검색 기능
+- 자재 클릭 시 해당 3D 요소 선택
+- 카테고리 접기/펼치기
+- 요소별 표시/숨김 토글
+
+### 🗂️ 모델 트리
+- IFC 공간 구조 계층 표시
+  - Project → Site → Building → Storey → Space
+- 트리 노드 클릭 시 해당 요소 선택
+- 접기/펼치기 기능
+
+### 📈 성능 모니터링
+- **FPS 표시** (stats.js)
+- 좌측 하단에 실시간 성능 정보
+
+### 🎭 테이블-3D 연동 하이라이트
+- 3D에서 요소 선택 → 자재 테이블 자동 필터링
+- 테이블에서 행 클릭 → 해당 요소 초록색 하이라이트
+- 파란색(3D 선택) + 초록색(테이블 선택) 이중 하이라이트
+
+## 🛠️ 기술 스택
+
+### Frontend
+| 기술 | 버전 | 용도 |
+|------|------|------|
+| Next.js | 16.1.4 | React 프레임워크 (App Router) |
+| React | 19.2.3 | UI 라이브러리 |
+| TypeScript | 5.x | 타입 안정성 |
+| Tailwind CSS | 4.x | 스타일링 |
+
+### 3D 렌더링
+| 기술 | 버전 | 용도 |
+|------|------|------|
+| Three.js | 0.176.0 | 3D 그래픽 |
+| @react-three/fiber | 9.5.0 | React + Three.js 통합 |
+| @react-three/drei | 10.7.7 | Three.js 유틸리티 |
+| three-mesh-bvh | 0.8.3 | BVH 레이캐스팅 최적화 |
+
+### BIM/IFC
+| 기술 | 버전 | 용도 |
+|------|------|------|
+| web-ifc | 0.0.74 | IFC 파일 파싱 (WASM) |
+
+### UI 컴포넌트
+| 기술 | 용도 |
+|------|------|
+| shadcn/ui | UI 컴포넌트 (Button, Tabs, ScrollArea 등) |
+| Radix UI | 접근성 있는 UI 프리미티브 |
+| Lucide React | 아이콘 |
+
+## 📂 프로젝트 구조
+
+```
+ifc-mvp/
+├── app/                          # Next.js App Router
+│   ├── layout.tsx                # 루트 레이아웃
+│   ├── page.tsx                  # 메인 페이지
+│   └── globals.css               # 전역 스타일
+│
+├── components/
+│   ├── viewer/                   # 🎯 IFC 뷰어 컴포넌트
+│   │   ├── index.tsx             # 메인 뷰어 컨테이너
+│   │   ├── scene/
+│   │   │   ├── index.tsx         # 3D 씬 (조명, 카메라, 선택)
+│   │   │   └── materials.ts      # 재질 정의
+│   │   ├── sidebar/
+│   │   │   ├── index.tsx         # 사이드바 컨테이너
+│   │   │   ├── MaterialTable.tsx # 자재 테이블
+│   │   │   ├── ModelTree.tsx     # 모델 트리
+│   │   │   └── StoreyFilter.tsx  # 층별 필터
+│   │   ├── toolbar/
+│   │   │   └── index.tsx         # 상단 툴바
+│   │   ├── upload/
+│   │   │   └── index.tsx         # 파일 업로드
+│   │   └── hooks/
+│   │       ├── useSelection.ts   # 선택 상태 관리
+│   │       └── useVisibility.ts  # 표시/숨김 관리
+│   │
+│   └── ui/                       # shadcn/ui 컴포넌트
+│
+├── hooks/
+│   └── useIFCLoader.ts           # 🔧 IFC 파일 로더 (핵심)
+│
+├── lib/
+│   ├── ifc/                      # IFC 유틸리티
+│   └── three/
+│       ├── index.ts              # Three.js 유틸리티 export
+│       └── bvhRaycaster.ts       # BVH 레이캐스팅
+│
+├── types/
+│   └── ifc.ts                    # IFC 관련 타입 정의
+│
+├── public/
+│   ├── wasm/                     # ⚠️ web-ifc WASM 파일 (필수!)
+│   │   ├── web-ifc.wasm
+│   │   ├── web-ifc-mt.wasm
+│   │   └── web-ifc-node.wasm
+│   └── logo.png
+│
+└── next.config.ts                # Next.js 설정
+```
+
+## 🚀 시작하기
+
+### 요구사항
+- Node.js 18.x 이상
+- npm 또는 yarn
+
+### 설치
+
+```bash
+# 저장소 클론
+git clone https://github.com/your-repo/ifc-mvp.git
+cd ifc-mvp
+
+# 의존성 설치
+npm install
+
+# WASM 파일 복사 (중요!)
+cp node_modules/web-ifc/*.wasm public/wasm/
+```
+
+### 개발 서버 실행
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 에서 확인
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 프로덕션 빌드
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+## ⚙️ 환경 설정
 
-To learn more about Next.js, take a look at the following resources:
+### next.config.ts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```typescript
+import type { NextConfig } from "next";
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+const nextConfig: NextConfig = {
+  reactStrictMode: false,  // web-ifc 호환성
+  
+  // WASM 파일 리다이렉트
+  async rewrites() {
+    return [
+      {
+        source: "/_next/static/chunks/wasm/:path*",
+        destination: "/wasm/:path*",
+      },
+    ];
+  },
+  
+  webpack: (config) => {
+    config.experiments = {
+      ...config.experiments,
+      asyncWebAssembly: true,
+      syncWebAssembly: true,
+    };
+    return config;
+  },
+};
 
-## Deploy on Vercel
+export default nextConfig;
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🔧 주요 기능 상세
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# ifc-mvp
+### IFC 로더 (`hooks/useIFCLoader.ts`)
+
+```typescript
+const {
+  isLoading,      // 로딩 상태
+  progress,       // 진행률 (0-100)
+  error,          // 에러 메시지
+  loadIFC,        // 파일 로드 함수
+  getMaterialList,// 자재 목록 반환
+  getStoreyList,  // 층 목록 반환
+  getSpatialTree, // 공간 트리 반환
+} = useIFCLoader();
+```
+
+### 선택 관리 (`hooks/useSelection.ts`)
+
+```typescript
+const {
+  selectedExpressIDs,    // 선택된 요소 ID 배열
+  handleElementSelect,   // 요소 선택 핸들러
+  handleMaterialSelect,  // 자재 선택 핸들러
+  handleClearSelection,  // 선택 해제
+} = useSelection(getElementsByType);
+```
+
+### 표시/숨김 관리 (`hooks/useVisibility.ts`)
+
+```typescript
+const {
+  hiddenExpressIDs,      // 숨겨진 요소 ID
+  selectedStorey,        // 선택된 층
+  visibleExpressIDs,     // 표시할 요소 ID (층 필터)
+  handleToggleVisibility,// 표시/숨김 토글
+} = useVisibility(materials, storeys);
+```
+
+## 📝 IFC 타입 지원
+
+| IFC 타입 | 한글명 | 카테고리 |
+|----------|--------|----------|
+| IfcWall | 벽체 | 구조 |
+| IfcWallStandardCase | 벽체(표준) | 구조 |
+| IfcBeam | 보 | 구조 |
+| IfcColumn | 기둥 | 구조 |
+| IfcSlab | 슬래브 | 구조 |
+| IfcRoof | 지붕 | 구조 |
+| IfcStair | 계단 | 구조 |
+| IfcWindow | 창문 | 건축 |
+| IfcDoor | 문 | 건축 |
+| IfcCovering | 마감재 | 건축 |
+| IfcFurnishingElement | 가구 | 가구 |
+| IfcFlowTerminal | 설비단말 | 설비 |
+| IfcRailing | 난간 | 기타 |
+
+## 🎨 UI/UX 특징
+
+- **다크 모드 기본** - 눈의 피로 감소
+- **반응형 사이드바** - 접기/펼치기 가능
+- **직관적인 툴바** - 아이콘 + 텍스트 레이블
+- **실시간 피드백** - 선택, 호버 시 시각적 피드백
+- **프로그레스 바** - 로딩 진행 상태 표시
+
+## ⚡ 성능 최적화
+
+1. **frameloop="demand"** - 변경 시에만 렌더링
+2. **BVH Raycasting** - 빠른 마우스 피킹
+3. **Frustum Culling** - 화면 밖 객체 제외
+4. **청크 단위 처리** - UI 블로킹 방지
+5. **Material 캐싱** - 동일 재질 재사용
+6. **대용량 자동 최적화** - 10,000+ 메시 시 윤곽선 자동 OFF
+
+## 🐛 알려진 이슈
+
+1. **That Open Components 미호환** - Next.js 16 + React 19 환경에서 @thatopen/components 초기화 실패
+2. **대용량 파일** - 100MB 이상 파일은 로딩 시간이 길어질 수 있음
+
+## 📜 라이선스
+
+MIT License
+
+## 🤝 기여
+
+이슈와 PR을 환영합니다!

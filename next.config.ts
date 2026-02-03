@@ -18,10 +18,15 @@ const nextConfig: NextConfig = {
         source: "/_next/static/chunks/:path*.wasm",
         destination: "/wasm/:path*.wasm",
       },
+      // /dist/ 폴더 WASM 지원
+      {
+        source: "/dist/:path*",
+        destination: "/dist/:path*",
+      },
     ];
   },
 
-  // WASM MIME 타입 설정
+  // WASM MIME 타입 및 CORS 설정
   async headers() {
     return [
       {
@@ -30,6 +35,36 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Type",
             value: "application/wasm",
+          },
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "*",
+          },
+          {
+            key: "Cross-Origin-Embedder-Policy",
+            value: "require-corp",
+          },
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin",
+          },
+        ],
+      },
+      {
+        source: "/dist/:path*",
+        headers: [
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "*",
+          },
+        ],
+      },
+      {
+        source: "/wasm/:path*",
+        headers: [
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "*",
           },
         ],
       },

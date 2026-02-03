@@ -4,6 +4,7 @@
 - **프로젝트명**: IFC Viewer MVP
 - **목적**: BIM IFC 도면 파일을 웹에서 3D로 시각화하는 뷰어
 - **타겟 사용자**: 건축/건설 관련 엔지니어, BIM 담당자
+- **참고 사이트**: https://smacon.howbuild.com/sites/demo/quantity-review
 
 ## 기술 스택
 
@@ -13,85 +14,155 @@
 - TypeScript 5.x
 
 ### 3D 렌더링
-- three@0.176.0 (Three.js)
-- @react-three/fiber (React Three.js 래퍼)
+- three@0.176.0 (Three.js) - 3D 렌더링 엔진
+- @react-three/fiber (React Three.js 래퍼) - Legacy 뷰어에서 사용
 - @react-three/drei (Three.js 유틸리티 컴포넌트)
 
-### BIM/IFC 라이브러리
-- **web-ifc@0.0.74** (IFC 파일 파싱, WebAssembly 기반) ✅ 현재 사용 중
-- @thatopen/components@3.3.0 (⚠️ 호환성 문제 있음 - 아래 참고)
-- @thatopen/fragments@3.3.1 (⚠️ 호환성 문제 있음 - 아래 참고)
+### BIM/IFC 라이브러리 역할 분리 ⭐
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    IFC 파일 (.ifc)                          │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  web-ifc (WASM 기반)                                        │
+│  - IFC 파일 파싱 (고속)                                     │
+│  - 지오메트리 데이터 추출                                    │
+│  - 속성/메타데이터 추출                                      │
+│  - expressID, typeCode 등 IFC 정보 제공                     │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Three.js                                                   │
+│  - 3D 렌더링 (WebGL)                                        │
+│  - 메시/지오메트리/머티리얼 관리                             │
+│  - 카메라, 조명, 컨트롤                                      │
+└─────────────────────────────────────────────────────────────┘
+                           ↓
+┌─────────────────────────────────────────────────────────────┐
+│  @thatopen/components (선택적)                              │
+│  - Highlighter: 객체 선택/하이라이트                        │
+│  - Classifier: 카테고리/층별 분류                           │
+│  - Hider: 객체 숨김/표시                                    │
+│  - FragmentsManager: .frag 최적화 로딩                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 라이브러리 버전
+- **web-ifc@0.0.74** - IFC 파일 파싱 (WebAssembly) ✅ 핵심
+- @thatopen/components@3.3.0 - BIM 컴포넌트 (실험적)
+- @thatopen/fragments@3.3.1 - 최적화 로딩 (실험적)
 
 ### UI/스타일링
 - Tailwind CSS
 - shadcn/ui 컴포넌트
 - lucide-react 아이콘
 
-## ⚠️ That Open Components 호환성 문제 (중요!)
+## 🚀 Fragments 렌더링 방식 (필수!)
 
-### 문제 상황
-`@thatopen/components`와 `@thatopen/fragments`를 Next.js 16 + React 19 환경에서 사용 시 다음 에러 발생:
+### 핵심 요구사항
+**반드시 @thatopen/components와 @thatopen/fragments를 사용하여 IFC 렌더링 구현**
+
+### 구현 방식
+1. **Three.js 기반**: @thatopen/components의 Components 시스템으로 Scene, Renderer, Camera 설정
+2. **Fragments 방식**: IFC → Fragments(.frag) 변환하여 로드 (성능 최적화)
+3. **클라이언트 컴포넌트**: `'use client'` + dynamic import (ssr: false)
+4. **메모리 관리**: Unmount 시 `components.dispose()` 호출 필수
+
+### 구현 순서
+```typescript
+// 1. Components 초기화 (React 외부에서)
+const components = new OBC.Components();
+const worlds = components.get(OBC.Worlds);
+const world = worlds.create<OBC.SimpleScene, OBC.SimpleCamera, OBC.SimpleRenderer>();
+
+// 2. Scene, Camera, Renderer 설정
+world.scene = new OBC.SimpleScene(components);
+world.renderer = new OBC.SimpleRenderer(components, container);
+world.camera = new OBC.SimpleCamera(components);
+
+// 3. IFC Loader 설정
+const fragments = components.get(OBC.FragmentsManager);
+const ifcLoader = components.get(OBC.IfcLoader);
+await ifcLoader.setup();
+
+// 4. IFC 로드 → Fragments 자동 변환
+const model = await ifcLoader.load(data);
+world.scene.three.add(model);
+
+// 5. 정리
+components.dispose();
 ```
-TypeError: callbacks.shift(...) is not a function
-at callRuntimeCallbacks (web-ifc-api.js)
-```
 
-### 원인
-- @thatopen/components가 내부적으로 자체 web-ifc 버전을 번들링
-- Next.js webpack 설정과 WASM 로딩 방식 충돌
-- React 19의 새로운 런타임과 호환성 문제
+### 주의사항
+- **옛날 IFC.js 코드(IfcLoader) 사용 금지**
+- FragmentsManager + IfcLoader(@thatopen/components) 사용
+- WASM 경로: CDN 사용 권장 (`https://unpkg.com/web-ifc@0.0.68/`)
 
-### 현재 해결책
-**web-ifc를 직접 사용** (`hooks/useIFCLoader.ts`)
-- `web-ifc@0.0.74` 직접 import
-- WASM 파일은 `public/wasm/`에 배치
-- Next.js rewrites로 경로 매핑:
-  ```typescript
-  // next.config.ts
-  async rewrites() {
-    return [
-      {
-        source: "/_next/static/chunks/wasm/:path*",
-        destination: "/wasm/:path*",
-      },
-    ];
-  }
-  ```
+### Next.js 환경 문제 해결
+- Next.js webpack과 @thatopen/components 내부 web-ifc 충돌 가능
+- 해결책: @react-three/fiber 사용하지 않고, @thatopen/components 자체 렌더러 사용
+- 또는 iframe으로 순수 HTML 뷰어 분리
 
-### That Open Components 사용하려면
-- Next.js 버전 다운그레이드 (14.x) 시도
-- 또는 순수 HTML/JS 환경에서 사용
-- 공식 문서: https://docs.thatopen.com/
+## 뷰어 타입 (3가지)
+
+### 1. 🏗️ Legacy Viewer (프로덕션 기본)
+- **파일**: `components/viewer/index.tsx` (IFCViewer)
+- **로더**: `hooks/useIFCLoader.ts`
+- **렌더링**: @react-three/fiber (Canvas 컴포넌트)
+- **특징**: 안정적, X-Ray 투시 지원
+
+### 2. 📦 Fragments Viewer (개발용)
+- **파일**: `components/viewer/FragmentsViewer.tsx`
+- **로더**: web-ifc 직접 사용
+- **렌더링**: Three.js 직접 (vanilla)
+- **특징**: 대용량 파일 최적화 시도
+
+### 3. ⚡ ThatOpen Viewer (실험적)
+- **파일**: `components/viewer/thatopen/index.tsx`
+- **로더**: @thatopen/components IfcLoader
+- **렌더링**: @thatopen/components 자체 렌더러
+- **특징**: 최신 API, 호환성 이슈 있음
+
+### 환경별 기본 뷰어
+| 환경 | 포트 | 기본 뷰어 | 선택 UI |
+|------|------|-----------|---------|
+| 프로덕션 | 3000 | Legacy | 없음 |
+| 개발 | 3001 | 선택 가능 | 있음 |
 
 ## 프로젝트 구조
 ```
 ifc-mvp/
 ├── app/                    # Next.js App Router
 │   ├── layout.tsx
-│   ├── page.tsx
+│   ├── page.tsx            # 뷰어 타입 선택 (개발모드)
 │   └── globals.css
 ├── components/
 │   ├── viewer/             # 3D 뷰어 관련 컴포넌트
-│   │   ├── index.tsx       # 메인 뷰어 컨테이너
-│   │   ├── scene/          # 3D 씬 컴포넌트
+│   │   ├── index.tsx       # 🏗️ Legacy Viewer (IFCViewer)
+│   │   ├── FragmentsViewer.tsx  # 📦 Fragments Viewer
+│   │   ├── thatopen/       # ⚡ ThatOpen Viewer
+│   │   ├── scene/          # 3D 씬 (Legacy용)
 │   │   ├── sidebar/        # 사이드바 (자재, 모델트리)
 │   │   ├── toolbar/        # 툴바
 │   │   ├── upload/         # 파일 업로드
 │   │   └── hooks/          # 뷰어 전용 훅
 │   └── ui/                 # shadcn/ui 컴포넌트
 ├── hooks/
-│   ├── useIFCLoader.ts     # ✅ 메인 IFC 로더 (web-ifc 직접 사용)
-│   └── useFragmentsLoader.ts # ⚠️ That Open 로더 (호환성 문제)
+│   ├── useIFCLoader.ts     # ✅ Legacy용 IFC 로더
+│   ├── useIFCWorkerLoader.ts  # Web Worker 버전
+│   └── useFragmentsLoader.ts  # That Open 로더
 ├── lib/
 │   ├── ifc/                # IFC 관련 유틸리티
-│   └── three/              # Three.js 최적화 유틸리티
+│   └── three/              # Three.js 최적화 (BVH, LOD 등)
 ├── types/
 │   └── ifc.ts              # IFC 관련 타입 정의
 ├── public/
-│   └── wasm/               # web-ifc WASM 파일 (필수!)
+│   ├── wasm/               # ⚠️ 구버전 WASM (사용 안 함)
+│   └── dist/               # ✅ web-ifc WASM 파일
 │       ├── web-ifc.wasm
-│       ├── web-ifc-mt.wasm
-│       └── web-ifc-node.wasm
+│       └── web-ifc-mt.wasm
 └── ...config files
 ```
 
@@ -120,6 +191,8 @@ ifc-mvp/
 - WASM 로딩: `ifcApi.SetWasmPath("/wasm/")`
 - node_modules에서 WASM 복사: `cp node_modules/web-ifc/*.wasm public/wasm/`
 - IFC 파일 파싱은 청크 단위로 진행 (UI 블로킹 방지)
+- That Open Company Fragments 사용 
+- @thatopen/fragments 라이브러리를 사용하여 IFC 파일을 .frag 파일로 변환하여 랜더링
 
 ### 스타일링
 - Tailwind CSS 클래스 사용
@@ -151,6 +224,35 @@ ifc-mvp/
 11. 자재 테이블 (수량 검토)
 12. 다크/라이트 모드
 13. 윤곽선 표시 (on/off)
+
+## X-Ray 투시 구현 방식 ⭐
+
+### 핵심 원리
+```typescript
+// 선택된 객체: 건물 뒤에서도 보임
+material.depthTest = false;  // 깊이 테스트 비활성화 = 투시!
+child.renderOrder = 999;     // 맨 위에 렌더링
+
+// 나머지 건물: 그대로 유지
+material.depthTest = true;   // 깊이 테스트 활성화 = 일반
+```
+
+### Legacy 뷰어 (scene/materials.ts)
+```typescript
+// X-Ray 하이라이트 머티리얼
+export const highlightMaterial = new THREE.MeshBasicMaterial({
+  color: 0x3b82f6,      // 파란색
+  transparent: true,
+  opacity: 0.5,
+  depthTest: false,     // 투시!
+  side: THREE.DoubleSide,
+});
+```
+
+### Fragments 뷰어
+- 선택 하이라이트 useEffect에서 X-Ray와 통합
+- `xraySelectedIDsRef`로 X-Ray 대상 ID 저장
+- 테이블 클릭해도 X-Ray 대상 유지
 
 ## Next.js 설정 (next.config.ts)
 ```typescript
@@ -203,13 +305,45 @@ export default nextConfig;
 - 대안: web-ifc 직접 사용 권장
 
 ## 참고 자료
-- That Open Company (IFC.js) 공식 문서: https://docs.thatopen.com/
+
+### 공식 문서
+- That Open Company 문서: https://docs.thatopen.com/
 - web-ifc GitHub: https://github.com/ThatOpen/engine_web-ifc
 - @react-three/fiber 문서: https://docs.pmnd.rs/react-three-fiber
 - IFC 스펙 문서: https://technical.buildingsmart.org/standards/ifc/
+
+### 참고 서비스 (추정 기술 스택)
+- **smacon.howbuild.com** - 수량 검토 서비스
+  - 추정: @thatopen/components + @thatopen/fragments + Three.js + web-ifc
+  - 기능: X-Ray, 객체 선택, 층별 필터, 자재 테이블
+
+### 분석 방법 (브라우저 개발자 도구)
+```javascript
+// 크롬 F12 > Console에서 확인
+console.log(window.THREE);   // Three.js
+console.log(window.OBC);     // @thatopen/components
+console.log(window.FRAGS);   // @thatopen/fragments
+
+// Network 탭에서 확인
+// - web-ifc.wasm 로드 여부
+// - three.js 또는 three.module.js
+// - @thatopen 관련 번들
+```
 
 ## 응답 언어
 - 사용자에게 응답할 때는 항상 한국어로 응답
 
 ## 백업 정보
 - 프로젝트 백업: `/Users/pata/ifc-mvp-backup` (That Open 전환 전 상태)
+
+## PM2 서버 관리
+```bash
+# 개발 서버 (포트 3001)
+pm2 restart ifc-mvp-dev
+
+# 프로덕션 서버 (포트 3000)
+pm2 restart ifc-mvp-prod
+
+# 상태 확인
+pm2 list
+```

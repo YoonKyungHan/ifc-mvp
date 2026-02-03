@@ -9,15 +9,24 @@ import {
   Moon,
   Scan,
   X,
-  Hexagon
+  Hexagon,
+  Download,
+  Activity
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
+// 개발 모드 확인
+const isDev = process.env.NODE_ENV === 'development';
+
 export interface ViewerToolbarProps {
   hasModel: boolean;
-  showTable: boolean;
-  onToggleTable: () => void;
+  showTable?: boolean;
+  showSidebar?: boolean;
+  showFps?: boolean;
+  onToggleTable?: () => void;
+  onToggleSidebar?: () => void;
+  onToggleFps?: () => void;
   selectedCount?: number;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
@@ -25,13 +34,18 @@ export interface ViewerToolbarProps {
   onToggleXray: () => void;
   showEdges: boolean;
   onToggleEdges: () => void;
-  onClearSelection: () => void;
+  onClearSelection?: () => void;
+  onExportFrag?: () => void;
 }
 
 export function ViewerToolbar({ 
   hasModel, 
-  showTable, 
+  showTable,
+  showSidebar,
+  showFps,
   onToggleTable,
+  onToggleSidebar,
+  onToggleFps,
   selectedCount = 0,
   isDarkMode,
   onToggleDarkMode,
@@ -39,8 +53,11 @@ export function ViewerToolbar({
   onToggleXray,
   showEdges,
   onToggleEdges,
-  onClearSelection
+  onClearSelection,
+  onExportFrag
 }: ViewerToolbarProps) {
+  // showSidebar가 있으면 ThatOpen 뷰어, showTable이 있으면 Legacy 뷰어
+  const isThatOpenViewer = showSidebar !== undefined;
   const buttonClass = isDarkMode 
     ? "bg-slate-800/90 backdrop-blur-sm border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700"
     : "bg-white/90 backdrop-blur-sm border border-slate-300 text-slate-600 hover:text-slate-900 hover:bg-slate-100";
@@ -49,6 +66,14 @@ export function ViewerToolbar({
     ? "bg-slate-800/90 backdrop-blur-sm border-slate-700"
     : "bg-white/90 backdrop-blur-sm border-slate-300";
 
+  // 패널 토글 함수 (ThatOpen과 Legacy 호환)
+  const handleTogglePanel = () => {
+    if (onToggleSidebar) onToggleSidebar();
+    else if (onToggleTable) onToggleTable();
+  };
+  
+  const isPanelOpen = showSidebar ?? showTable ?? false;
+
   return (
     <>
       {/* 왼쪽 - 패널 토글 + 로고 */}
@@ -56,11 +81,11 @@ export function ViewerToolbar({
         <Button 
           variant="ghost" 
           size="icon"
-          onClick={onToggleTable}
-          title={showTable ? "테이블 숨기기" : "테이블 표시"}
+          onClick={handleTogglePanel}
+          title={isPanelOpen ? "패널 숨기기" : "패널 표시"}
           className={buttonClass}
         >
-          {showTable ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
+          {isPanelOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
         </Button>
 
         <div className={`flex items-center gap-3 px-4 py-2 rounded-lg border shadow-lg ${panelClass}`}>
@@ -73,9 +98,11 @@ export function ViewerToolbar({
                 <CheckSquare className="w-4 h-4" />
                 <span className="text-sm font-medium">{selectedCount}개 선택</span>
               </div>
-              <button onClick={onClearSelection} className="p-1 rounded hover:bg-slate-700/50" title="선택 해제">
-                <X className="w-4 h-4 text-slate-400 hover:text-white" />
-              </button>
+              {onClearSelection && (
+                <button onClick={onClearSelection} className="p-1 rounded hover:bg-slate-700/50" title="선택 해제">
+                  <X className="w-4 h-4 text-slate-400 hover:text-white" />
+                </button>
+              )}
             </>
           )}
         </div>
@@ -108,6 +135,34 @@ export function ViewerToolbar({
               <Scan className="w-4 h-4" />
               <span className="text-xs font-medium">X-Ray</span>
             </Button>
+
+            {/* FPS 표시 - 개발 모드에서만 */}
+            {isDev && onToggleFps && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={onToggleFps}
+                title={showFps ? "FPS 숨기기" : "FPS 표시"}
+                className={`${buttonClass} gap-2 ${showFps ? "!bg-green-500/20 !text-green-400 !border-green-500/50" : ""}`}
+              >
+                <Activity className="w-4 h-4" />
+                <span className="text-xs font-medium">FPS</span>
+              </Button>
+            )}
+
+            {/* 내보내기 - 개발 모드에서만 */}
+            {isDev && onExportFrag && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={onExportFrag}
+                title=".frag 파일로 내보내기"
+                className={`${buttonClass} gap-2`}
+              >
+                <Download className="w-4 h-4" />
+                <span className="text-xs font-medium">내보내기</span>
+              </Button>
+            )}
           </>
         )}
 
